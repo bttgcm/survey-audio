@@ -15,10 +15,22 @@
  *   - A Google Sheet named "Audio Survey Responses"
  *   - A Drive folder named "Audio Survey Recordings"
  * and remember their IDs in Script Properties, so they're reused on every submission.
+ *
+ * To turn on automatic transcription of the audio answers:
+ *   1. Get an API key from https://platform.openai.com/api-keys
+ *   2. In the Apps Script editor: Project Settings (gear icon) > Script Properties
+ *      > Add script property > name it OPENAI_API_KEY, paste your key as the value.
+ *   3. Leave ENABLE_TRANSCRIPTION below set to true. Each recording is sent to
+ *      OpenAI's speech-to-text API right after it's saved to Drive, and the text
+ *      is written into the sheet next to the audio link.
+ * If OPENAI_API_KEY isn't set, transcription is silently skipped and the
+ * transcript column is left blank — the rest of the submission still works.
  */
 
 var ANSWER_QUESTION_IDS = ["q1", "q2", "q3"];
 var AUDIO_QUESTION_IDS = ["q4", "q5", "q6"];
+var ENABLE_TRANSCRIPTION = true;
+var TRANSCRIBE_MODEL = "gpt-4o-mini-transcribe"; // cheap + fast; use "whisper-1" as a fallback if unavailable
 
 function getOrCreateSpreadsheet() {
   var props = PropertiesService.getScriptProperties();
@@ -39,11 +51,42 @@ function getOrCreateSpreadsheet() {
   if (sheet.getLastRow() === 0) {
     var header = ["Server Timestamp", "Submitted At"]
       .concat(ANSWER_QUESTION_IDS)
-      .concat(AUDIO_QUESTION_IDS.map(function (id) { return id + "_audio_link"; }));
+      .concat(AUDIO_QUESTION_IDS.map(function (id) { return id + "_audio_link"; }))
+      .concat(AUDIO_QUESTION_IDS.map(function (id) { return id + "_transcript"; }));
     sheet.appendRow(header);
     sheet.setFrozenRows(1);
   }
   return sheet;
+}
+
+/**
+ * Sends an audio blob to OpenAI's speech-to-text API and returns the
+ * transcribed text, or "" if transcription is disabled, not configured,
+ * or fails (failures are logged, never thrown, so a submission still saves).
+ */
+function transcribeAudio(blob) {
+  if (!ENABLE_TRANSCRIPTION) return "";
+  var apiKey = PropertiesService.getScriptProperties().getProperty("OPENAI_API_KEY");
+  if (!apiKey) return "";
+
+  try {
+    var options = {
+      method: "post",
+      headers: { Authorization: "Bearer " + apiKey },
+      payload: { file: blob, model: TRANSCRIBE_MODEL },
+      muteHttpExceptions: true,
+    };
+    var resp = UrlFetchApp.fetch("https://api.openai.com/v1/audio/transcriptions", options);
+    if (resp.getResponseCode() !== 200) {
+      Logger.log("Transcription failed (" + resp.getResponseCode() + "): " + resp.getContentText());
+      return "";
+    }
+    var json = JSON.parse(resp.getContentText());
+    return json.text || "";
+  } catch (err) {
+    Logger.log("Transcription error: " + err.message);
+    return "";
+  }
 }
 
 function getOrCreateFolder() {
@@ -97,6 +140,7 @@ function doPost(e) {
     var submissionFolder = folder.createFolder(safeStamp);
 
     var audioLinks = {};
+    var transcripts = {};
     audioItems.forEach(function (item) {
       if (!item.base64) return;
       var ext = item.extension || "webm";
@@ -105,6 +149,7 @@ function doPost(e) {
       var blob = Utilities.newBlob(bytes, item.mimeType || "audio/webm", filename);
       var file = submissionFolder.createFile(blob);
       audioLinks[item.questionId] = file.getUrl();
+      transcripts[item.questionId] = transcribeAudio(blob);
     });
 
     var row = [new Date(), submittedAt];
@@ -113,6 +158,9 @@ function doPost(e) {
     });
     AUDIO_QUESTION_IDS.forEach(function (qid) {
       row.push(audioLinks[qid] || "");
+    });
+    AUDIO_QUESTION_IDS.forEach(function (qid) {
+      row.push(transcripts[qid] || "");
     });
     sheet.appendRow(row);
 
