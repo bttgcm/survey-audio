@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Audio Survey</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --card:#ffffff; --text:#1c1e21; --muted:#6b7280;
+    --accent:#2563eb; --accent-dark:#1d4ed8; --danger:#dc2626; --border:#e2e5ea;
+    --ok:#16a34a;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:var(--bg); color:var(--text); padding:24px 12px 60px;
+  }
+  .wrap{max-width:640px; margin:0 auto;}
+  header{margin-bottom:24px; text-align:center;}
+  header h1{font-size:1.5rem; margin:0 0 6px;}
+  header p{color:var(--muted); margin:0; font-size:0.95rem;}
+  .progress{height:6px; background:var(--border); border-radius:4px; overflow:hidden; margin-bottom:28px;}
+  .progress-bar{height:100%; background:var(--accent); width:0%; transition:width .3s;}
+  .card{
+    background:var(--card); border:1px solid var(--border); border-radius:14px;
+    padding:20px; margin-bottom:16px; box-shadow:0 1px 2px rgba(0,0,0,.04);
+  }
+  .card label.qtitle{display:block; font-weight:600; margin-bottom:10px; font-size:1.02rem;}
+  .req{color:var(--danger); font-weight:400; font-size:.85rem;}
+  input[type=text], textarea, select{
+    width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:8px;
+    font-size:1rem; font-family:inherit; background:#fff; color:var(--text);
+  }
+  textarea{resize:vertical; min-height:70px;}
+  .choices label{display:flex; align-items:center; gap:8px; padding:8px 0; cursor:pointer; font-size:.98rem;}
+  .choices input{width:auto;}
+  .rec-row{display:flex; align-items:center; gap:10px; flex-wrap:wrap;}
+  button{
+    font-family:inherit; font-size:.95rem; border:none; border-radius:8px; padding:10px 16px;
+    cursor:pointer; font-weight:600; transition:opacity .15s;
+  }
+  button:disabled{opacity:.5; cursor:not-allowed;}
+  .btn-record{background:var(--danger); color:#fff;}
+  .btn-stop{background:#374151; color:#fff;}
+  .btn-reset{background:transparent; color:var(--muted); border:1px solid var(--border);}
+  .btn-submit{background:var(--accent); color:#fff; width:100%; padding:14px; font-size:1.05rem;}
+  .btn-submit:hover:not(:disabled){background:var(--accent-dark);}
+  .timer{font-variant-numeric:tabular-nums; color:var(--muted); font-size:.9rem; min-width:48px;}
+  .rec-status{font-size:.85rem; color:var(--muted); margin-top:8px;}
+  .rec-status.recording{color:var(--danger); font-weight:600;}
+  audio{width:100%; margin-top:10px;}
+  .hint{font-size:.82rem; color:var(--muted); margin-top:6px;}
+  footer{margin-top:10px;}
+  .consent{display:flex; align-items:flex-start; gap:10px; font-size:.88rem; color:var(--muted); margin-bottom:16px;}
+  .consent input{margin-top:3px;}
+  #formMsg{margin-top:14px; text-align:center; font-size:.95rem; min-height:20px;}
+  #formMsg.ok{color:var(--ok);}
+  #formMsg.err{color:var(--danger);}
+  #doneScreen{display:none; text-align:center; padding:60px 20px;}
+  #doneScreen h2{margin-bottom:8px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1 id="surveyTitle">Voice Survey</h1>
+    <p id="surveySubtitle">6 quick questions — three answered by typing, three by recording your voice.</p>
+  </header>
+
+  <div class="progress"><div class="progress-bar" id="progressBar"></div></div>
+
+  <form id="surveyForm" novalidate>
+    <div id="questionsContainer"></div>
+
+    <div class="consent">
+      <input type="checkbox" id="consent" required>
+      <label for="consent">I agree that my responses and audio recordings may be stored and reviewed for the purpose of this survey.</label>
+    </div>
+
+    <button type="submit" class="btn-submit" id="submitBtn">Submit Survey</button>
+    <div id="formMsg"></div>
+  </form>
+
+  <div id="doneScreen">
+    <h2>Thank you!</h2>
+    <p>Your responses have been submitted.</p>
+  </div>
+</div>
+
+<script>
+/* ======================================================================
+   CONFIG — edit these to customize the survey
+   ====================================================================== */
+const CONFIG = {
+  // Paste the Web App URL you get after deploying the Apps Script project
+  // (Deploy > New deployment > Web app). See apps-script/Code.gs.
+  ENDPOINT_URL: "https://script.google.com/macros/s/AKfycbzpWPrIznIQAZI_Et_ANZXl1_-JXLqrydPMK2_IR8c0dYke0cf98-klcJodKY5oj-Ao/exec",
+
+  // Max length per recording, in seconds. Keeps uploads small & fast.
+  MAX_RECORD_SECONDS: 120,
+};
+
+// 6 questions: 3 text/choice + 3 audio. Edit freely — id must stay unique.
+const QUESTIONS = [
+  { id: "q1", type: "text",   title: "What is your age range?", required: true,
+    placeholder: "e.g. 25-34" },
+  { id: "q2", type: "choice", title: "How often do you use this product/service?", required: true,
+    options: ["Daily", "A few times a week", "A few times a month", "Rarely", "Never"] },
+  { id: "q3", type: "text",   title: "What is your main reason for using it?", required: true,
+    placeholder: "Type a short answer..." },
+  { id: "q4", type: "audio",  title: "In your own words, describe your overall experience.", required: true },
+  { id: "q5", type: "audio",  title: "What is the biggest problem you'd like us to fix?", required: true },
+  { id: "q6", type: "audio",  title: "Any other comments or suggestions?", required: false },
+];
+/* ====================================================================== */
+
+const audioStore = {}; // questionId -> { blob, mimeType }
+const container = document.getElementById("questionsContainer");
+
+function pickMimeType() {
+  const candidates = [
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/mp4",
+    "audio/ogg;codecs=opus",
+  ];
+  for (const c of candidates) {
+    if (window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(c)) return c;
+  }
+  return ""; // let the browser choose
+}
+
+function extFromMime(mime) {
+  if (!mime) return "webm";
+  if (mime.includes("webm")) return "webm";
+  if (mime.includes("mp4")) return "m4a";
+  if (mime.includes("ogg")) return "ogg";
+  return "audio";
+}
+
+function formatTime(s) {
+  const m = Math.floor(s / 60).toString().padStart(2, "0");
+  const sec = Math.floor(s % 60).toString().padStart(2, "0");
+  return `${m}:${sec}`;
+}
+
+function buildTextQuestion(q, card) {
+  const input = document.createElement("textarea");
+  input.id = q.id;
+  input.rows = 2;
+  input.placeholder = q.placeholder || "";
+  if (q.required) input.required = true;
+  card.appendChild(input);
+}
+
+function buildChoiceQuestion(q, card) {
+  const wrap = document.createElement("div");
+  wrap.className = "choices";
+  q.options.forEach((opt, i) => {
+    const label = document.createElement("label");
+    const radio = document.createElement("input");
+    radio.type = "radio";
+    radio.name = q.id;
+    radio.value = opt;
+    if (q.required && i === 0) radio.required = true; // enough for native validation on a radio group
+    label.appendChild(radio);
+    label.appendChild(document.createTextNode(opt));
+    wrap.appendChild(label);
+  });
+  card.appendChild(wrap);
+}
+
+function buildAudioQuestion(q, card) {
+  const row = document.createElement("div");
+  row.className = "rec-row";
+
+  const recordBtn = document.createElement("button");
+  recordBtn.type = "button";
+  recordBtn.className = "btn-record";
+  recordBtn.textContent = "● Record";
+
+  const stopBtn = document.createElement("button");
+  stopBtn.type = "button";
+  stopBtn.className = "btn-stop";
+  stopBtn.textContent = "■ Stop";
+  stopBtn.style.display = "none";
+
+  const resetBtn = document.createElement("button");
+  resetBtn.type = "button";
+  resetBtn.className = "btn-reset";
+  resetBtn.textContent = "Re-record";
+  resetBtn.style.display = "none";
+
+  const timer = document.createElement("span");
+  timer.className = "timer";
+  timer.textContent = "00:00";
+
+  row.appendChild(recordBtn);
+  row.appendChild(stopBtn);
+  row.appendChild(resetBtn);
+  row.appendChild(timer);
+  card.appendChild(row);
+
+  const status = document.createElement("div");
+  status.className = "rec-status";
+  status.textContent = q.required ? "No recording yet (required)" : "No recording yet (optional)";
+  card.appendChild(status);
+
+  const player = document.createElement("audio");
+  player.controls = true;
+  player.style.display = "none";
+  card.appendChild(player);
+
+  let mediaRecorder, chunks = [], stream, timerInterval, elapsed = 0;
+
+  async function startRecording() {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+      status.textContent = "Microphone access denied or unavailable.";
+      return;
+    }
+    const mimeType = pickMimeType();
+    mediaRecorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+    chunks = [];
+    elapsed = 0;
+    timer.textContent = "00:00";
+
+    mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+    mediaRecorder.onstop = () => {
+      clearInterval(timerInterval);
+      stream.getTracks().forEach((t) => t.stop());
+      const usedMime = mediaRecorder.mimeType || mimeType || "audio/webm";
+      const blob = new Blob(chunks, { type: usedMime });
+      audioStore[q.id] = { blob, mimeType: usedMime };
+
+      player.src = URL.createObjectURL(blob);
+      player.style.display = "block";
+      status.textContent = "Recording captured ✓";
+      status.classList.remove("recording");
+      recordBtn.style.display = "none";
+      stopBtn.style.display = "none";
+      resetBtn.style.display = "inline-block";
+    };
+
+    mediaRecorder.start();
+    status.textContent = "Recording…";
+    status.classList.add("recording");
+    recordBtn.style.display = "none";
+    stopBtn.style.display = "inline-block";
+
+    timerInterval = setInterval(() => {
+      elapsed += 1;
+      timer.textContent = formatTime(elapsed);
+      if (elapsed >= CONFIG.MAX_RECORD_SECONDS) {
+        mediaRecorder.stop();
+      }
+    }, 1000);
+  }
+
+  function stopRecording() {
+    if (mediaRecorder && mediaRecorder.state !== "inactive") mediaRecorder.stop();
+  }
+
+  function reset() {
+    delete audioStore[q.id];
+    player.style.display = "none";
+    player.removeAttribute("src");
+    status.textContent = q.required ? "No recording yet (required)" : "No recording yet (optional)";
+    status.classList.remove("recording");
+    elapsed = 0;
+    timer.textContent = "00:00";
+    recordBtn.style.display = "inline-block";
+    resetBtn.style.display = "none";
+  }
+
+  recordBtn.addEventListener("click", startRecording);
+  stopBtn.addEventListener("click", stopRecording);
+  resetBtn.addEventListener("click", reset);
+
+  const hint = document.createElement("div");
+  hint.className = "hint";
+  hint.textContent = `Max length: ${Math.floor(CONFIG.MAX_RECORD_SECONDS / 60)} min. Tap Record, then Stop when you're done.`;
+  card.appendChild(hint);
+}
+
+function renderQuestions() {
+  QUESTIONS.forEach((q, idx) => {
+    const card = document.createElement("div");
+    card.className = "card";
+    const title = document.createElement("label");
+    title.className = "qtitle";
+    title.innerHTML = `${idx + 1}. ${q.title} ${q.required ? '<span class="req">*</span>' : ""}`;
+    card.appendChild(title);
+
+    if (q.type === "text") buildTextQuestion(q, card);
+    else if (q.type === "choice") buildChoiceQuestion(q, card);
+    else if (q.type === "audio") buildAudioQuestion(q, card);
+
+    container.appendChild(card);
+  });
+}
+
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const result = reader.result; // "data:<mime>;base64,XXXX"
+      resolve(result.split(",")[1]);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+function updateProgress() {
+  const total = QUESTIONS.length + 1; // +1 for consent
+  let done = 0;
+  QUESTIONS.forEach((q) => {
+    if (q.type === "audio") { if (audioStore[q.id]) done++; }
+    else if (q.type === "choice") { if (document.querySelector(`input[name="${q.id}"]:checked`)) done++; }
+    else { const el = document.getElementById(q.id); if (el && el.value.trim()) done++; }
+  });
+  if (document.getElementById("consent").checked) done++;
+  document.getElementById("progressBar").style.width = `${Math.round((done / total) * 100)}%`;
+}
+
+function validateRequiredAudio() {
+  const missing = QUESTIONS.filter((q) => q.type === "audio" && q.required && !audioStore[q.id]);
+  return missing;
+}
+
+async function handleSubmit(e) {
+  e.preventDefault();
+  const form = document.getElementById("surveyForm");
+  const msg = document.getElementById("formMsg");
+  msg.className = "";
+  msg.textContent = "";
+
+  if (!form.checkValidity()) {
+    form.reportValidity();
+    return;
+  }
+  const missingAudio = validateRequiredAudio();
+  if (missingAudio.length) {
+    msg.className = "err";
+    msg.textContent = "Please record an answer for all required audio questions.";
+    return;
+  }
+  if (CONFIG.ENDPOINT_URL.includes("PASTE_YOUR_APPS_SCRIPT_WEB_APP_URL_HERE")) {
+    msg.className = "err";
+    msg.textContent = "Survey not configured yet: set CONFIG.ENDPOINT_URL in index.html.";
+    return;
+  }
+
+  const submitBtn = document.getElementById("submitBtn");
+  submitBtn.disabled = true;
+  msg.className = "";
+  msg.textContent = "Uploading… please don't close this page.";
+
+  const answers = {};
+  QUESTIONS.forEach((q) => {
+    if (q.type === "text") answers[q.id] = document.getElementById(q.id).value.trim();
+    else if (q.type === "choice") {
+      const checked = document.querySelector(`input[name="${q.id}"]:checked`);
+      answers[q.id] = checked ? checked.value : "";
+    }
+  });
+
+  const audioPayload = [];
+  for (const q of QUESTIONS.filter((q) => q.type === "audio")) {
+    const entry = audioStore[q.id];
+    if (!entry) continue;
+    const base64 = await blobToBase64(entry.blob);
+    audioPayload.push({
+      questionId: q.id,
+      mimeType: entry.mimeType,
+      extension: extFromMime(entry.mimeType),
+      base64,
+    });
+  }
+
+  const payload = {
+    submittedAt: new Date().toISOString(),
+    answers,
+    audio: audioPayload,
+  };
+
+  try {
+    const res = await fetch(CONFIG.ENDPOINT_URL, {
+      method: "POST",
+      body: JSON.stringify(payload), // text/plain by default -> avoids CORS preflight to Apps Script
+    });
+    let ok = res.ok;
+    try {
+      const data = await res.json();
+      ok = data.status === "ok";
+      if (!ok) throw new Error(data.message || "Server reported an error.");
+    } catch (_) {
+      // response couldn't be parsed as JSON (can happen with some CORS setups) — fall back to res.ok
+    }
+    if (!ok) throw new Error("Submission failed.");
+
+    form.style.display = "none";
+    document.getElementById("doneScreen").style.display = "block";
+  } catch (err) {
+    msg.className = "err";
+    msg.textContent = "Something went wrong submitting your answers. Please try again. (" + err.message + ")";
+    submitBtn.disabled = false;
+  }
+}
+
+renderQuestions();
+document.getElementById("surveyForm").addEventListener("input", updateProgress);
+document.getElementById("surveyForm").addEventListener("change", updateProgress);
+document.getElementById("surveyForm").addEventListener("submit", handleSubmit);
+updateProgress();
+</script>
+</body>
+</html>
