@@ -27,8 +27,8 @@
  * transcript column is left blank — the rest of the submission still works.
  */
 
-var ANSWER_QUESTION_IDS = ["q1", "q2", "q3"];
-var AUDIO_QUESTION_IDS = ["q4", "q5", "q6"];
+var ANSWER_QUESTION_IDS = ["q1", "q4", "q5", "q6"];
+var AUDIO_QUESTION_IDS = ["q2", "q3"];
 var ENABLE_TRANSCRIPTION = true;
 var TRANSCRIBE_MODEL = "gpt-4o-mini-transcribe"; // cheap + fast; use "whisper-1" as a fallback if unavailable
 
@@ -48,13 +48,21 @@ function getOrCreateSpreadsheet() {
     props.setProperty("SPREADSHEET_ID", ss.getId());
   }
   var sheet = ss.getSheets()[0];
+  var header = ["Server Timestamp", "Submitted At"]
+    .concat(ANSWER_QUESTION_IDS)
+    .concat(AUDIO_QUESTION_IDS.map(function (id) { return id + "_audio_link"; }))
+    .concat(AUDIO_QUESTION_IDS.map(function (id) { return id + "_transcript"; }));
   if (sheet.getLastRow() === 0) {
-    var header = ["Server Timestamp", "Submitted At"]
-      .concat(ANSWER_QUESTION_IDS)
-      .concat(AUDIO_QUESTION_IDS.map(function (id) { return id + "_audio_link"; }))
-      .concat(AUDIO_QUESTION_IDS.map(function (id) { return id + "_transcript"; }));
     sheet.appendRow(header);
     sheet.setFrozenRows(1);
+  } else {
+    // Keep the header in sync when the question list changes.
+    var width = Math.max(header.length, sheet.getLastColumn());
+    var current = sheet.getRange(1, 1, 1, width).getValues()[0];
+    var expected = header.concat(new Array(width - header.length).fill(""));
+    if (current.join("\u0000") !== expected.join("\u0000")) {
+      sheet.getRange(1, 1, 1, width).setValues([expected]);
+    }
   }
   return sheet;
 }

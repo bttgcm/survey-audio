@@ -27,7 +27,7 @@
   }
   .card label.qtitle{display:block; font-weight:600; margin-bottom:10px; font-size:1.02rem;}
   .req{color:var(--danger); font-weight:400; font-size:.85rem;}
-  input[type=text], textarea, select{
+  input[type=text], input[type=number], textarea, select{
     width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:8px;
     font-size:1rem; font-family:inherit; background:#fff; color:var(--text);
   }
@@ -63,8 +63,10 @@
 <body>
 <div class="wrap">
   <header>
-    <h1 id="surveyTitle">Voice Survey</h1>
-    <p id="surveySubtitle">6 quick questions — three answered by typing, three by recording your voice.</p>
+    <h1 id="surveyTitle">An exploratory survey on IMS and flying</h1>
+    <p id="surveySubtitle">In recent years, growing public awareness of the environmental impact of air travel has contributed to the emergence of movements such as _flight shame_ (or _flygskam_). These movements encourage people to reflect on the environmental consequences of flying and to consider more sustainable alternatives, such as travelling by train where feasible.
+
+This survey aims to explore how MSF International Mobile Staff (IMS) perceive and engage with the ideas associated with the flight-shame movement, and how these ideas relate to the requirements and realities of their work.</p>
   </header>
 
   <div class="progress"><div class="progress-bar" id="progressBar"></div></div>
@@ -100,17 +102,15 @@ const CONFIG = {
   MAX_RECORD_SECONDS: 120,
 };
 
-// 6 questions: 3 text/choice + 3 audio. Edit freely — id must stay unique.
+// Question types: text, number, choice, audio. Edit freely — id must stay unique.
 const QUESTIONS = [
-  { id: "q1", type: "text",   title: "What is your age range?", required: true,
-    placeholder: "e.g. 25-34" },
-  { id: "q2", type: "choice", title: "How often do you use this product/service?", required: true,
-    options: ["Daily", "A few times a week", "A few times a month", "Rarely", "Never"] },
-  { id: "q3", type: "text",   title: "What is your main reason for using it?", required: true,
+  { id: "q1", type: "text",   title: "What are your personal views on the ideas associated with the flight-shame movement?", required: true,
     placeholder: "Type a short answer..." },
-  { id: "q4", type: "audio",  title: "In your own words, describe your overall experience.", required: true },
-  { id: "q5", type: "audio",  title: "What is the biggest problem you'd like us to fix?", required: true },
-  { id: "q6", type: "audio",  title: "Any other comments or suggestions?", required: false },
+  { id: "q2", type: "audio",  title: "In your view, how, if at all, do the ideas associated with the flight-shame movement relate to the role and working conditions of MSF International Mobile Staff (IMS)?", required: true },
+  { id: "q3", type: "audio",  title: "To what extent, if at all, do you think MSF should take the ideas associated with the flight-shame movement into account when developing policies and practices concerning the recruitment, deployment, and management of IMS?", required: true },
+  { id: "q4", type: "number", title: "How many missions have you done with MSF?", required: true, min: 0, step: 1 },
+  { id: "q5", type: "number", title: "On average, how many flights a year do you take with MSF?", required: true, min: 0, step: "any" },
+  { id: "q6", type: "number", title: "What is your age?", required: true, min: 18, max: 100, step: 1 },
 ];
 /* ====================================================================== */
 
@@ -149,6 +149,18 @@ function buildTextQuestion(q, card) {
   input.id = q.id;
   input.rows = 2;
   input.placeholder = q.placeholder || "";
+  if (q.required) input.required = true;
+  card.appendChild(input);
+}
+
+function buildNumberQuestion(q, card) {
+  const input = document.createElement("input");
+  input.type = "number";
+  input.id = q.id;
+  input.inputMode = q.step === 1 ? "numeric" : "decimal";
+  if (q.min !== undefined) input.min = q.min;
+  if (q.max !== undefined) input.max = q.max;
+  if (q.step !== undefined) input.step = q.step;
   if (q.required) input.required = true;
   card.appendChild(input);
 }
@@ -294,6 +306,7 @@ function renderQuestions() {
     card.appendChild(title);
 
     if (q.type === "text") buildTextQuestion(q, card);
+    else if (q.type === "number") buildNumberQuestion(q, card);
     else if (q.type === "choice") buildChoiceQuestion(q, card);
     else if (q.type === "audio") buildAudioQuestion(q, card);
 
@@ -360,7 +373,7 @@ async function handleSubmit(e) {
 
   const answers = {};
   QUESTIONS.forEach((q) => {
-    if (q.type === "text") answers[q.id] = document.getElementById(q.id).value.trim();
+    if (q.type === "text" || q.type === "number") answers[q.id] = document.getElementById(q.id).value.trim();
     else if (q.type === "choice") {
       const checked = document.querySelector(`input[name="${q.id}"]:checked`);
       answers[q.id] = checked ? checked.value : "";
