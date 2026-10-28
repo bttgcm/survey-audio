@@ -126,9 +126,53 @@ function setup() {
   Logger.log("Drive folder: " + folder.getUrl());
 }
 
+/**
+ * Run this from the Apps Script editor to check transcription is set up.
+ * It also triggers the permission prompt for calling external services.
+ */
+function testTranscriptionSetup() {
+  var apiKey = PropertiesService.getScriptProperties().getProperty("OPENAI_API_KEY");
+  if (!apiKey) {
+    Logger.log("No script property named exactly OPENAI_API_KEY was found.");
+    return;
+  }
+  var resp = UrlFetchApp.fetch("https://api.openai.com/v1/models/" + TRANSCRIBE_MODEL, {
+    headers: { Authorization: "Bearer " + apiKey },
+    muteHttpExceptions: true,
+  });
+  Logger.log("OpenAI responded " + resp.getResponseCode() + ": " + resp.getContentText());
+}
+
 function doGet(e) {
+  if (e && e.parameter && e.parameter.action === "assign") {
+    return ContentService.createTextOutput(JSON.stringify({ variant: nextVariant() }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
   return ContentService.createTextOutput("Audio survey endpoint is live.")
     .setMimeType(ContentService.MimeType.TEXT);
+}
+
+/**
+ * Hands out "audio" and "text" in turn so the two groups stay 50/50.
+ * The counter lives in Script Properties; the lock stops two visitors
+ * arriving at the same moment from getting the same slot.
+ * To restart the count (e.g. after testing), run resetVariantCounter().
+ */
+function nextVariant() {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var n = parseInt(props.getProperty("VARIANT_COUNTER") || "0", 10);
+    props.setProperty("VARIANT_COUNTER", String(n + 1));
+    return n % 2 === 0 ? "audio" : "text";
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function resetVariantCounter() {
+  PropertiesService.getScriptProperties().deleteProperty("VARIANT_COUNTER");
 }
 
 function doPost(e) {

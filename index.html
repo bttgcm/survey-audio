@@ -115,21 +115,33 @@ const QUESTIONS = [
 ];
 /* ====================================================================== */
 
-// Each participant is randomly assigned to answer the switchable questions
-// by audio or by text. The assignment is remembered in this browser so a
-// reload doesn't flip it. Add ?mode=audio or ?mode=text to the URL to force one.
-const VARIANT = (() => {
+// Each participant is assigned to answer the switchable questions by audio or
+// by text. The backend hands out the two variants in turn so the groups stay
+// 50/50; if it can't be reached, a random pick is used instead. The assignment
+// is remembered in this browser so a reload doesn't flip it.
+// Add ?mode=audio or ?mode=text to the URL to force one (doesn't count).
+let VARIANT;
+
+async function assignVariant() {
   const forced = new URLSearchParams(location.search).get("mode");
   if (forced === "audio" || forced === "text") return forced;
   try {
     const saved = localStorage.getItem("surveyVariant");
     if (saved === "audio" || saved === "text") return saved;
   } catch (_) {}
-  const picked = Math.random() < 0.5 ? "audio" : "text";
+  let picked;
+  try {
+    const ctrl = new AbortController();
+    const timeout = setTimeout(() => ctrl.abort(), 5000);
+    const res = await fetch(CONFIG.ENDPOINT_URL + "?action=assign", { signal: ctrl.signal });
+    clearTimeout(timeout);
+    const data = await res.json();
+    if (data.variant === "audio" || data.variant === "text") picked = data.variant;
+  } catch (_) {}
+  if (!picked) picked = Math.random() < 0.5 ? "audio" : "text";
   try { localStorage.setItem("surveyVariant", picked); } catch (_) {}
   return picked;
-})();
-QUESTIONS.forEach((q) => { if (q.type === "switchable") q.type = VARIANT; });
+}
 
 const audioStore = {}; // questionId -> { blob, mimeType }
 const container = document.getElementById("questionsContainer");
@@ -441,11 +453,19 @@ async function handleSubmit(e) {
   }
 }
 
-renderQuestions();
-document.getElementById("surveyForm").addEventListener("input", updateProgress);
-document.getElementById("surveyForm").addEventListener("change", updateProgress);
-document.getElementById("surveyForm").addEventListener("submit", handleSubmit);
-updateProgress();
+async function init() {
+  container.textContent = "Loading…";
+  VARIANT = await assignVariant();
+  QUESTIONS.forEach((q) => { if (q.type === "switchable") q.type = VARIANT; });
+  container.textContent = "";
+  renderQuestions();
+  document.getElementById("surveyForm").addEventListener("input", updateProgress);
+  document.getElementById("surveyForm").addEventListener("change", updateProgress);
+  document.getElementById("surveyForm").addEventListener("submit", handleSubmit);
+  updateProgress();
+}
+
+init();
 </script>
 </body>
 </html>
