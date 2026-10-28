@@ -19,6 +19,8 @@
   header{margin-bottom:24px; text-align:center;}
   header h1{font-size:1.5rem; margin:0 0 6px;}
   header p{color:var(--muted); margin:0; font-size:0.95rem;}
+  header p.intro{text-align:left;}
+  header p.intro + p.intro{margin-top:12px;}
   .progress{height:6px; background:var(--border); border-radius:4px; overflow:hidden; margin-bottom:28px;}
   .progress-bar{height:100%; background:var(--accent); width:0%; transition:width .3s;}
   .card{
@@ -64,9 +66,8 @@
 <div class="wrap">
   <header>
     <h1 id="surveyTitle">An exploratory survey on IMS and flying</h1>
-    <p id="surveySubtitle">In recent years, growing public awareness of the environmental impact of air travel has contributed to the emergence of movements such as _flight shame_ (or _flygskam_). These movements encourage people to reflect on the environmental consequences of flying and to consider more sustainable alternatives, such as travelling by train where feasible.
-
-This survey aims to explore how MSF International Mobile Staff (IMS) perceive and engage with the ideas associated with the flight-shame movement, and how these ideas relate to the requirements and realities of their work.</p>
+    <p id="surveySubtitle" class="intro">In recent years, growing public awareness of the environmental impact of air travel has contributed to the emergence of movements such as <em>flight shame</em> (or <em>flygskam</em>). These movements encourage people to reflect on the environmental consequences of flying and to consider more sustainable alternatives, such as travelling by train where feasible.</p>
+    <p class="intro">This survey aims to explore how MSF International Mobile Staff (IMS) perceive and engage with the ideas associated with the flight-shame movement, and how these ideas relate to the requirements and realities of their work.</p>
   </header>
 
   <div class="progress"><div class="progress-bar" id="progressBar"></div></div>
@@ -102,16 +103,33 @@ const CONFIG = {
   MAX_RECORD_SECONDS: 120,
 };
 
-// Question types: text, number, choice, audio. Edit freely — id must stay unique.
+// Question types: text, number, choice, audio, or "switchable" (audio or text
+// depending on the variant this participant was assigned). id must stay unique.
 const QUESTIONS = [
-  { id: "q1", type: "audio",  title: "What are your personal views on the ideas associated with the flight-shame movement?", required: true },
-  { id: "q2", type: "audio",  title: "In your view, how, if at all, do the ideas associated with the flight-shame movement relate to the role and working conditions of MSF International Mobile Staff (IMS)?", required: true },
-  { id: "q3", type: "audio",  title: "To what extent, if at all, do you think MSF should take the ideas associated with the flight-shame movement into account when developing policies and practices concerning the recruitment, deployment, and management of IMS?", required: true },
+  { id: "q1", type: "switchable", title: "What are your personal views on the ideas associated with the flight-shame movement?", required: true },
+  { id: "q2", type: "switchable", title: "In your view, how, if at all, do the ideas associated with the flight-shame movement relate to the role and working conditions of MSF International Mobile Staff (IMS)?", required: true },
+  { id: "q3", type: "switchable", title: "To what extent, if at all, do you think MSF should take the ideas associated with the flight-shame movement into account when developing policies and practices concerning the recruitment, deployment, and management of IMS?", required: true },
   { id: "q4", type: "number", title: "How many missions have you done with MSF?", required: true, min: 0, step: 1 },
   { id: "q5", type: "number", title: "On average, how many flights a year do you take with MSF?", required: true, min: 0, step: "any" },
   { id: "q6", type: "number", title: "What is your age?", required: true, min: 18, max: 100, step: 1 },
 ];
 /* ====================================================================== */
+
+// Each participant is randomly assigned to answer the switchable questions
+// by audio or by text. The assignment is remembered in this browser so a
+// reload doesn't flip it. Add ?mode=audio or ?mode=text to the URL to force one.
+const VARIANT = (() => {
+  const forced = new URLSearchParams(location.search).get("mode");
+  if (forced === "audio" || forced === "text") return forced;
+  try {
+    const saved = localStorage.getItem("surveyVariant");
+    if (saved === "audio" || saved === "text") return saved;
+  } catch (_) {}
+  const picked = Math.random() < 0.5 ? "audio" : "text";
+  try { localStorage.setItem("surveyVariant", picked); } catch (_) {}
+  return picked;
+})();
+QUESTIONS.forEach((q) => { if (q.type === "switchable") q.type = VARIANT; });
 
 const audioStore = {}; // questionId -> { blob, mimeType }
 const container = document.getElementById("questionsContainer");
@@ -146,8 +164,8 @@ function formatTime(s) {
 function buildTextQuestion(q, card) {
   const input = document.createElement("textarea");
   input.id = q.id;
-  input.rows = 2;
-  input.placeholder = q.placeholder || "";
+  input.rows = 4;
+  input.placeholder = q.placeholder || "Type your answer...";
   if (q.required) input.required = true;
   card.appendChild(input);
 }
@@ -394,6 +412,7 @@ async function handleSubmit(e) {
 
   const payload = {
     submittedAt: new Date().toISOString(),
+    variant: VARIANT,
     answers,
     audio: audioPayload,
   };

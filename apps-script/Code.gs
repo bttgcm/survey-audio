@@ -28,6 +28,8 @@
  */
 
 var ANSWER_QUESTION_IDS = ["q4", "q5", "q6"];
+// Answered by audio or by text, depending on the participant's variant.
+// The _text column holds the transcript (audio) or the typed answer (text).
 var AUDIO_QUESTION_IDS = ["q1", "q2", "q3"];
 var ENABLE_TRANSCRIPTION = true;
 var TRANSCRIBE_MODEL = "gpt-4o-mini-transcribe"; // cheap + fast; use "whisper-1" as a fallback if unavailable
@@ -51,7 +53,8 @@ function getOrCreateSpreadsheet() {
   var header = ["Server Timestamp", "Submitted At"]
     .concat(ANSWER_QUESTION_IDS)
     .concat(AUDIO_QUESTION_IDS.map(function (id) { return id + "_audio_link"; }))
-    .concat(AUDIO_QUESTION_IDS.map(function (id) { return id + "_transcript"; }));
+    .concat(AUDIO_QUESTION_IDS.map(function (id) { return id + "_text"; }))
+    .concat(["Variant"]);
   if (sheet.getLastRow() === 0) {
     sheet.appendRow(header);
     sheet.setFrozenRows(1);
@@ -168,8 +171,9 @@ function doPost(e) {
       row.push(audioLinks[qid] || "");
     });
     AUDIO_QUESTION_IDS.forEach(function (qid) {
-      row.push(transcripts[qid] || "");
+      row.push(transcripts[qid] || answers[qid] || "");
     });
+    row.push(data.variant || "");
     sheet.appendRow(row);
 
     result = { status: "ok" };
