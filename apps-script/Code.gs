@@ -27,8 +27,8 @@
  * transcript column is left blank — the rest of the submission still works.
  */
 
-var ANSWER_QUESTION_IDS = ["q1", "q4", "q5", "q6"];
-var AUDIO_QUESTION_IDS = ["q2", "q3"];
+var ANSWER_QUESTION_IDS = ["q4", "q5", "q6"];
+var AUDIO_QUESTION_IDS = ["q1", "q2", "q3"];
 var ENABLE_TRANSCRIPTION = true;
 var TRANSCRIBE_MODEL = "gpt-4o-mini-transcribe"; // cheap + fast; use "whisper-1" as a fallback if unavailable
 
